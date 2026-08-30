@@ -1,3 +1,9 @@
+"""Demo HTTP service with Prometheus instrumentation.
+
+Metrics are intentionally defined at module scope so every request handled by
+this process updates the same Prometheus registry.
+"""
+
 import time
 
 from flask import Flask, jsonify, request
@@ -6,7 +12,8 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 app = Flask(__name__)
 
-# Prometheus metrics use standard names, units, and low-cardinality labels.
+# Keep labels bounded and predictable. Do not add user IDs, request IDs, or
+# raw URLs: high-cardinality labels increase Prometheus storage and query cost.
 REQUESTS = Counter(
     "demo_http_requests",
     "Total HTTP requests handled by the demo application.",
@@ -26,18 +33,20 @@ IN_PROGRESS = Gauge(
 
 @app.get("/healthz")
 def healthz():
-    """Liveness endpoint for container orchestration."""
+    """Return process liveness without checking downstream dependencies."""
     return jsonify(status="ok")
 
 
 @app.get("/work")
 def work():
-    """Simulate some work being done."""
+    """Simulate bounded synchronous work and record successful latency."""
     try:
         seconds = float(request.args.get("seconds", 0.3))
     except ValueError:
+        # Invalid client input is a 4xx response, not an application failure.
         return jsonify(error="seconds must be a number"), 400
 
+    # Bound the demo workload so a request cannot monopolize the worker.
     seconds = min(max(seconds, 0), 5)
 
     with IN_PROGRESS.track_inprogress():
@@ -51,7 +60,7 @@ def work():
 
 @app.get("/fail")
 def fail():
-    """Simulate a failure."""
+    """Provide a controlled 500 response for alert and error-rate testing."""
     with REQUEST_DURATION.labels(endpoint="/fail").time():
         REQUESTS.labels(endpoint="/fail", status="500").inc()
         return jsonify(error="Intentional error for testing purposes."), 500
@@ -63,5 +72,6 @@ def home():
             REQUESTS.labels(endpoint="/", status="200").inc()
             return jsonify(message="Hello from the monitored app!")
 
-# Prometheus scrapes this endpoint; it should be restricted at the network edge in production.
+# Mount the Prometheus WSGI application separately from business routes. In a
+# production deployment, restrict this endpoint to the monitoring network.
 app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {"/metrics": make_wsgi_app()})

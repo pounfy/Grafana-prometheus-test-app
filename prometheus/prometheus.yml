@@ -1,8 +1,11 @@
 global:
+  # A short interval makes the demo responsive without creating excessive data.
   scrape_interval: 5s
 
 scrape_configs:
   - job_name: "demo-app"
+    # Docker Compose DNS resolves the service name "app" on the internal
+    # network; this is not the host's localhost address.
     metrics_path: /metrics
     static_configs:
       - targets: ["app:8000"]

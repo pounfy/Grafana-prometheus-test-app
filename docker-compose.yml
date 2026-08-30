@@ -2,8 +2,11 @@ services:
   app:
     build: ./app
     ports:
+      # Keep local development services off the LAN by default.
       - "127.0.0.1:8000:8000"
     init: true
+    # The application has no persistent local state. These controls limit the
+    # blast radius of a compromised process while retaining a writable /tmp.
     read_only: true
     tmpfs:
       - /tmp
@@ -23,6 +26,8 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
+      # Configuration is immutable at runtime; metric retention survives
+      # container recreation in the named volume.
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     command:
@@ -36,6 +41,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      # Credentials are injected from the ignored local .env file, never Git.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -48,5 +54,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Docker-managed volumes are intentionally excluded from source control.
   prometheus-data:
   grafana-data:
